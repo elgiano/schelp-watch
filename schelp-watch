@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+
+import sys
+from os.path import relpath
+import subprocess
+import logging
+from time import sleep
+from watchdog.observers import Observer
+from watchdog.events import PatternMatchingEventHandler
+from argparse import ArgumentParser
+
+patterns = ["*.schelp"]
+ignore_patterns = []
+ignore_directories = []
+
+class ScLang:
+
+    def __init__(self):
+        self.__sclang = None
+
+    def start (self):
+        if self.running():
+            return
+
+        self.__sclang = subprocess.Popen(["sclang",
+                "-i", "schelp-watch"],#, "-d", folder],
+                bufsize=0,
+                stdin=subprocess.PIPE,
+                #stdout=subprocess.PIPE,
+                #stderr=subprocess.STDOUT,
+                close_fds=True)
+        self.stdout = self.__sclang.stdout
+        self.stdin = self.__sclang.stdin
+
+    def stop(self):
+        if self.running():
+            self.stdin.close()
+            self.__sclang.wait()
+            self.__sclang = None
+
+    def running(self):
+        return (self.__sclang is not None) and (self.__sclang.poll() is None)
+
+    def evaluate(self, code, silent=False):
+        self.stdin.write(bytes(code,"utf-8"))
+        if silent:
+            self.stdin.write(b"\x1b")
+        else:
+            self.stdin.write(b"\x0c")
+        self.stdin.flush();
+
+    def initSCDoc(self, helpSourceDir, helpTargetDir):
+        self.helpSourceDir = helpSourceDir
+        self.evaluate("SCDoc.helpSourceDir = \"%s\""%(helpSourceDir));
+        if helpTargetDir:
+            self.evaluate("SCDoc.helpTargetDir = \"%s\""%(helpTargetDir));
+        self.evaluate("SCDoc.indexAllDocuments");
+
+    def recompileScHelp(self,path):
+        command = "SCDoc.parseAndRender(SCDoc.parseFileMetaData(\"%s\",\"%s\"))"%(self.helpSourceDir,path)
+        self.evaluate(command)
+
+    def openHelp(self):
+        self.evaluate("SCDoc.findHelpFile.openOS")
+
+
+
+class ScHelpHandler(PatternMatchingEventHandler):
+
+    def __init__(self, sclang, helpSourceDir, wait_for_process=True):
+        super(ScHelpHandler, self).__init__(patterns, ignore_patterns,
+                                                ignore_directories)
+        self.wait_for_process = wait_for_process
+        self.sclang = sclang
+        self.helpSourceDir = helpSourceDir
+
+    def on_any_event(self, event):
+        from string import Template
+
+        if event.is_directory:
+            return
+
+        if event.event_type not in ['created','modified','moved']:
+            return
+
+        file_path = event.dest_path if event.event_type == 'moved' else event.src_path
+        relative_path = relpath(file_path, self.helpSourceDir)
+
+        logging.info("(%s) %s", event.event_type, relative_path);
+
+        self.sclang.recompileScHelp(relative_path)
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO,
+                        format='[%(asctime)s] %(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S')
+
+    parser = ArgumentParser(description='Watch SuperCollider HelpSource directory, and rebuild Help files on source changes.')
+    parser.add_argument('-o', action="store_true",
+                    help='Optional: open SC Help (using .openOS in sclang)')
+    parser.add_argument('src', metavar='helpSourceDir', type=str,
+                    help='HelpSource directory to watch for changes')
+    parser.add_argument('target', metavar='helptargetDir', nargs='?', type=str,
+                    help='Optional: where to save compiled HelpFiles')
+    args = parser.parse_args()
+    helpSourceDir = args.src
+    helpTargetDir = args.target
+
+    logging.info("Starting sclang");
+    sclang = ScLang()
+    sclang.start()
+    logging.info("Initializing SCDoc");
+    sclang.initSCDoc(helpSourceDir, helpTargetDir)
+    if args.o:
+        logging.info("Opening SC Help");
+        sclang.openHelp()
+
+    handler = ScHelpHandler(sclang, helpSourceDir)
+
+    observer = Observer()
+    observer.schedule(handler, helpSourceDir, recursive=True)
+    observer.start()
+    try:
+        while True:
+            sleep(1)
+    except KeyboardInterrupt:
+        observer.stop()
+    observer.join()
