@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import sys
-from os.path import relpath
+from os.path import relpath, join, dirname
 import subprocess
 import logging
 from time import sleep
@@ -18,12 +18,16 @@ class ScLang:
     def __init__(self):
         self.__sclang = None
 
-    def start (self):
+    def start (self, sclangCommand="sclang", sclangConfig=None):
         if self.running():
             return
 
-        self.__sclang = subprocess.Popen(["sclang",
-                "-i", "schelp-watch"],#, "-d", folder],
+        sclangArgs = [sclangCommand,"-i", "schelp-watch"]
+        if(sclangConfig):
+            sclangArgs += ["-al", sclangConfig]
+
+        self.__sclang = subprocess.Popen(
+                sclangArgs,
                 bufsize=0,
                 stdin=subprocess.PIPE,
                 #stdout=subprocess.PIPE,
@@ -96,19 +100,34 @@ if __name__ == "__main__":
                         datefmt='%Y-%m-%d %H:%M:%S')
 
     parser = ArgumentParser(description='Watch SuperCollider HelpSource directory, and rebuild Help files on source changes.')
-    parser.add_argument('-o', action="store_true",
-                    help='Optional: open SC Help (using .openOS in sclang)')
+    parser.add_argument('--build',  action="store_true",
+            help='Optional: use a supercollider build directory instead of an HelpSource directory. Will find sclang, config and HelpSource from there (useful to work on sc main codebase).')
     parser.add_argument('src', metavar='helpSourceDir', type=str,
-                    help='HelpSource directory to watch for changes')
+                    help='HelpSource directory to watch for changes, or build directory if using --build')
     parser.add_argument('target', metavar='helptargetDir', nargs='?', type=str,
                     help='Optional: where to save compiled HelpFiles')
-    args = parser.parse_args()
-    helpSourceDir = args.src
-    helpTargetDir = args.target
+    parser.add_argument('--sclang', metavar="sclangCommand", type=str, default="sclang",
+            help='Optional: sclang command (default: sclang)')
+    parser.add_argument('--config', metavar="sclangConfig", type=str,
+            help='Optional: sclang config file')
+    parser.add_argument('-o', action="store_true",
+                    help='Optional: open SC Help (using .openOS in sclang)')
 
-    logging.info("Starting sclang");
+    args = parser.parse_args()
+    helpTargetDir = args.target
+    if(args.build):
+        sclangCommand = join(args.src, "lang", "sclang")
+        sclangConfig = join(args.src, "build_sclang.cfg")
+        helpSourceDir = join(dirname(args.src.strip("/")), "HelpSource")
+    else:
+        helpSourceDir = args.src
+        sclangCommand = args.sclang
+        sclangConfig = args.config
+
+    logging.info("HelpSource: {}\nsclang: {}\nsclangConfig: {}".format(helpSourceDir, sclangCommand, sclangConfig));
+    logging.info("Starting sclang ({})".format(sclangCommand));
     sclang = ScLang()
-    sclang.start()
+    sclang.start(sclangCommand, sclangConfig)
     logging.info("Initializing SCDoc");
     sclang.initSCDoc(helpSourceDir, helpTargetDir)
     if args.o:
