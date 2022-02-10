@@ -9,7 +9,7 @@ The intended workflow is to freely edit HelpSources, and just reload a browser t
 - [watchdog](https://github.com/gorakhargosh/watchdog/) `$ pip install watchdog`
 
 ## Usage
-Watch your HelpSource and open (-o) SC Help in a browser:
+Watch your HelpSource and open (-o) SC Help in a sclang HelpBrowser (now with autoreload!):
 ```
 $ ./schelp-watch /full/path/to/HelpSource -o
 ```
@@ -37,7 +37,7 @@ optional arguments:
                         Optional: sclang command (default: sclang)
   --config sclangConfig
                         Optional: sclang config file
-  -o                    Optional: open SC Help (using .openOS in sclang)
+  -o                    Optional: open SC Help (using HelpBrowser in sclang). Reloads automatically on changes
 ```
 
 ## How it works

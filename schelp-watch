@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import sys
-from os.path import relpath, join, dirname
+from os.path import relpath, abspath, join, dirname, splitext
 import subprocess
 import logging
 from time import sleep
@@ -22,6 +22,7 @@ class ScLang:
         if self.running():
             return
 
+        self.showingHelpBrowser = False
         sclangArgs = [sclangCommand,"-i", "schelp-watch"]
         if(sclangConfig):
             sclangArgs += ["-al", sclangConfig]
@@ -63,9 +64,15 @@ class ScLang:
     def recompileScHelp(self,path):
         command = "SCDoc.parseAndRender(SCDoc.parseFileMetaData(\"%s\",\"%s\"))"%(self.helpSourceDir,path)
         self.evaluate(command)
+        if self.showingHelpBrowser:
+            helpName = splitext(path)[0]
+            self.evaluate("HelpBrowser.openHelpFor(\"%s\")"%(helpName))
+
 
     def openHelp(self):
-        self.evaluate("SCDoc.findHelpFile.openOS")
+        self.showingHelpBrowser = True
+        self.evaluate("HelpBrowser.instance()")
+        # self.evaluate("SCDoc.findHelpFile.openOS")
 
 
 
@@ -111,18 +118,19 @@ if __name__ == "__main__":
     parser.add_argument('--config', metavar="sclangConfig", type=str,
             help='Optional: sclang config file')
     parser.add_argument('-o', action="store_true",
-                    help='Optional: open SC Help (using .openOS in sclang)')
+                    help='Optional: open SC Help (using HelpBrowser in sclang). Reloads automatically on changes')
 
     args = parser.parse_args()
-    helpTargetDir = args.target
     if(args.build):
         sclangCommand = join(args.src, "lang", "sclang")
         sclangConfig = join(args.src, "build_sclang.cfg")
         helpSourceDir = join(dirname(args.src.strip("/")), "HelpSource")
     else:
-        helpSourceDir = args.src
+        helpSourceDir = abspath(args.src)
         sclangCommand = args.sclang
         sclangConfig = args.config
+
+    helpTargetDir = abspath(args.target) if args.target else None
 
     logging.info("HelpSource: {}\nsclang: {}\nsclangConfig: {}".format(helpSourceDir, sclangCommand, sclangConfig));
     logging.info("Starting sclang ({})".format(sclangCommand));
