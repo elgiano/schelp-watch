@@ -17,7 +17,10 @@ Watch your build folder: will use correct sclang, SCClassLibrary and HelpSource 
 ```
 $ ./schelp-watch --build ~/.local/src/supercollider/build -o
 ```
-
+If you are developing a Quark, or an Extension, and the extension is already installed:
+```
+$ ./schelp-watch /path/to/your/extension/folder/HelpSource -o
+```
 Full usage:
 ```
 $ ./schelp-watch -h
