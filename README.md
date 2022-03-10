@@ -47,5 +47,5 @@ optional arguments:
 schelp-watch runs a sclang process (with default config), to rebuild Help files whenever their source changes.
 
 ## Known issues
-- Completely untested on mac and windows. Most certainly requires more work for those platforms.
+- Still completely untested on mac and windows. Most certainly requires more work for those platforms.
 - The most "secure" way to use this tool is to make sure it's running an sclang instance that was compiled together with SCClassLibrary and HelpSource in use. This ensures sclang will be able to compile the class library, and SCDoc will be able to find all methods that are defined in the HelpSource. Errors can happen when, for instance, using an older version of sclang with the SCClassLibrary and/or HelpSource from git's develop branch. This is why this tool's `--build` option was introduced.
