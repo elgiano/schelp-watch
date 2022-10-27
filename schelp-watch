@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 
 import sys
-from os.path import relpath, abspath, join, dirname, splitext
+from os.path import relpath, abspath, join, dirname, splitext, exists
+from os import getcwd, walk
 import subprocess
 import logging
 from time import sleep
@@ -15,24 +16,28 @@ ignore_directories = []
 
 class ScLang:
 
-    def __init__(self):
+    def __init__(self, sclangCommand="sclang", sclangConfig=None):
         self.__sclang = None
+        self.executable = sclangCommand
+        self.config = sclangConfig
+        self.showingHelpBrowser = False
 
-    def start (self, sclangCommand="sclang", sclangConfig=None):
+    def start (self, hide_sc_output=False):
         if self.running():
             return
 
-        self.showingHelpBrowser = False
-        sclangArgs = [sclangCommand,"-i", "schelp-watch"]
+        sclangArgs = [self.executable, "-i", "schelp-watch"]
         if(sclangConfig):
-            sclangArgs += ["-al", sclangConfig]
+            sclangArgs += ["-al", self.config]
 
+        out = subprocess.PIPE if hide_sc_output else None
         self.__sclang = subprocess.Popen(
                 sclangArgs,
                 bufsize=0,
                 stdin=subprocess.PIPE,
-                #stdout=subprocess.PIPE,
-                #stderr=subprocess.STDOUT,
+                stdout=out,
+                stderr=subprocess.STDOUT,
+                encoding="utf-8",
                 close_fds=True)
         self.stdout = self.__sclang.stdout
         self.stdin = self.__sclang.stdin
@@ -47,33 +52,46 @@ class ScLang:
         return (self.__sclang is not None) and (self.__sclang.poll() is None)
 
     def evaluate(self, code, silent=False):
-        self.stdin.write(bytes(code,"utf-8"))
-        if silent:
-            self.stdin.write(b"\x1b")
-        else:
-            self.stdin.write(b"\x0c")
+        code = code + ("\x1b" if silent else "\x0c")
+        self.stdin.write(code)
         self.stdin.flush();
 
-    def initSCDoc(self, helpSourceDir, helpTargetDir):
+    def initSCDoc(self, helpSourceDir, helpTargetDir, extension):
         self.helpSourceDir = helpSourceDir
-        self.evaluate("SCDoc.helpSourceDir = \"%s\""%(helpSourceDir));
+        # for extensions: add include path
+        if extension:
+            self.evaluate(f"LanguageConfig.addIncludePath(\"{helpSourceDir}\")")
+        else:
+            self.evaluate(f'SCDoc.helpSourceDir = "{helpSourceDir}"');
+
         if helpTargetDir:
-            self.evaluate("SCDoc.helpTargetDir = \"%s\""%(helpTargetDir));
-        self.evaluate("SCDoc.indexAllDocuments");
+            self.evaluate(f'SCDoc.helpTargetDir = "{helpTargetDir}"');
+        else:
+            self.makeTemporaryHelpTarget()
 
-    def recompileScHelp(self,path):
-        command = "SCDoc.parseAndRender(SCDoc.parseFileMetaData(\"%s\",\"%s\"))"%(self.helpSourceDir,path)
-        self.evaluate(command)
+        self.evaluate("SCDoc.indexAllDocuments(false)");
+
+    def makeTemporaryHelpTarget(self):
+        self.evaluate('''
+          var target = PathName.tmp +/+ "schelp-watch";
+          if (File.exists(target)) { File.deleteAll(target) };
+          File.copy(SCDoc.helpTargetDir, target);
+          SCDoc.helpTargetDir = target;
+          "SCDoc temporary target: %".format(SCDoc.helpTargetDir)
+          ''')
+
+    def recompileScHelp(self, path):
+        sccode = f'''
+            var entry = SCDoc.parseFileMetaData("{self.helpSourceDir}","{path}");
+            SCDoc.parseAndRender(entry);
+        '''
         if self.showingHelpBrowser:
-            helpName = splitext(path)[0]
-            self.evaluate("HelpBrowser.openHelpFor(\"%s\")"%(helpName))
-
+            sccode = sccode + 'HelpBrowser.goTo(entry.destPath);'
+        self.evaluate(sccode)
 
     def openHelp(self):
         self.showingHelpBrowser = True
-        self.evaluate("HelpBrowser.instance()")
-        # self.evaluate("SCDoc.findHelpFile.openOS")
-
+        self.evaluate("HelpBrowser.instance")
 
 
 class ScHelpHandler(PatternMatchingEventHandler):
@@ -95,55 +113,105 @@ class ScHelpHandler(PatternMatchingEventHandler):
             return
 
         file_path = event.dest_path if event.event_type == 'moved' else event.src_path
+        if splitext(file_path)[1] != ".schelp":
+            return
+
         relative_path = relpath(file_path, self.helpSourceDir)
-
         logging.info("(%s) %s", event.event_type, relative_path);
-
         self.sclang.recompileScHelp(relative_path)
 
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO,
-                        format='[%(asctime)s] %(message)s',
-                        datefmt='%Y-%m-%d %H:%M:%S')
+def detectBuildMode(path):
+    sclangCommand = join(path, "lang", "sclang")
+    sclangConfig = join(path, "build_sclang.cfg")
+    helpSourceDir = join(path, "..", "HelpSource")
+    found = [exists(p) for p in [sclangCommand, sclangConfig, helpSourceDir]]
+    return not False in found
 
-    parser = ArgumentParser(description='Watch SuperCollider HelpSource directory, and rebuild Help files on source changes.')
-    parser.add_argument('--build',  action="store_true",
-            help='Optional: use a supercollider build directory instead of an HelpSource directory. Will find sclang, config and HelpSource from there (useful to work on sc main codebase).')
-    parser.add_argument('src', metavar='helpSourceDir', type=str,
-                    help='HelpSource directory to watch for changes, or build directory if using --build')
-    parser.add_argument('target', metavar='helptargetDir', nargs='?', type=str,
-                    help='Optional: where to save compiled HelpFiles')
+def has_schelp_files(path):
+    for root,_,files in walk(path):
+        for f in files:
+            if f.endswith(".schelp"):
+                print(f"found some at {root}")
+                return True
+    return False
+
+def parse_arguments():
+    parser = ArgumentParser(description='''
+Watches .schelp files, rebuilding and previewing Help files on source changes.
+It can be used in build mode (for editing help files in SuperCollider's main repo), or extension mode (for Quarks and Extensions help files). If no mode is provided, schelp-watch will try to detect it automatically.
+    ''')
+
+    arg_group_mode = parser.add_mutually_exclusive_group()
+    arg_group_mode.add_argument('--build', '-b', dest="mode", action="store_const", const="build",
+        help='specify "build mode": will find sclang, config and HelpSource from PATH (useful to work on sc main codebase). Use it when editing help files in sc main repo')
+    arg_group_mode.add_argument('--extension', '-e', dest="mode", action="store_const", const="extension",
+        help='specify "extension mode": adds PATH to SuperCollider default HelpSource paths. Use it when editing Quarks and Extensions.')
+
+    parser.add_argument('path', metavar="PATH", type=str, nargs="?", default=getcwd(),
+                        help="in build mode: build folder; in extension mode: extension folder (default: current directory)")
+
+    parser.add_argument('--target', metavar="helpTarget", type=str,
+            help='Optional: where to save compiled HelpFiles (default: make a temporary folder)')
     parser.add_argument('--sclang', metavar="sclangCommand", type=str, default="sclang",
             help='Optional: sclang command (default: sclang)')
     parser.add_argument('--config', metavar="sclangConfig", type=str,
             help='Optional: sclang config file')
-    parser.add_argument('-o', action="store_true",
-                    help='Optional: open SC Help (using HelpBrowser in sclang). Reloads automatically on changes')
+    parser.add_argument('--quiet', '-q', action="store_true",
+            help='hide sclang output')
+    parser.add_argument('--no-preview', '-n', action="store_true",
+            help='write to target, but don\'t open HelpBrowser')
 
-    args = parser.parse_args()
-    if(args.build):
-        sclangCommand = join(args.src, "lang", "sclang")
-        sclangConfig = join(args.src, "build_sclang.cfg")
-        helpSourceDir = join(dirname(args.src.strip("/")), "HelpSource")
+    return parser.parse_args()
+
+if __name__ == "__main__":
+    logging.addLevelName(logging.WARNING, f"\033[1;33m{logging.getLevelName(logging.WARNING)}\033[1;0m")
+    logging.addLevelName(logging.INFO, f"\033[1;34m{logging.getLevelName(logging.INFO)}\033[1;0m")
+    logging.addLevelName(logging.ERROR, f"\033[1;31m{logging.getLevelName(logging.ERROR)}\033[1;0m")
+    logging.basicConfig(level=logging.INFO,
+                        format='[%(asctime)s] %(levelname)s %(message)s',
+                        datefmt='%H:%M:%S')
+
+    args = parse_arguments()
+    srcDir = abspath(args.path)
+    mode = args.mode
+    if mode is None:
+        build = detectBuildMode(srcDir)
+        if not build and detectBuildMode(join(srcDir, "build")):
+            build = True
+            srcDir = join(srcDir, "build")
+        mode = 'build' if build else 'extension'
+
+    logging.info(f"Starting in {mode} mode at '{srcDir}'")
+
+    if mode == "build":
+        sclangCommand = join(srcDir, "lang", "sclang")
+        sclangConfig = join(srcDir, "build_sclang.cfg")
+        helpSourceDir = join(srcDir, "..", "HelpSource")
     else:
-        helpSourceDir = abspath(args.src)
+        logging.info(f"looking for schelp files...")
+        if not has_schelp_files(srcDir):
+            logging.error("couldn't find any .schelp file in {srcDir}")
+            exit(1)
+        helpSourceDir = srcDir
         sclangCommand = args.sclang
         sclangConfig = args.config
 
     helpTargetDir = abspath(args.target) if args.target else None
 
-    logging.info("HelpSource: {}\nsclang: {}\nsclangConfig: {}".format(helpSourceDir, sclangCommand, sclangConfig));
+    logging.info(f"HelpSource: {helpSourceDir}");
+    if sclangConfig is not None:
+        logging.info(f"sclang config: {sclangConfig}")
     logging.info("Starting sclang ({})".format(sclangCommand));
-    sclang = ScLang()
-    sclang.start(sclangCommand, sclangConfig)
+    sclang = ScLang(sclangCommand, sclangConfig)
+    sclang.start(args.quiet)
     logging.info("Initializing SCDoc");
-    sclang.initSCDoc(helpSourceDir, helpTargetDir)
-    if args.o:
+    sclang.initSCDoc(helpSourceDir, helpTargetDir, mode == 'extension')
+    if not args.quiet:
         logging.info("Opening SC Help");
         sclang.openHelp()
 
+    # file watcher loop
     handler = ScHelpHandler(sclang, helpSourceDir)
-
     observer = Observer()
     observer.schedule(handler, helpSourceDir, recursive=True)
     observer.start()
