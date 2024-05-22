@@ -1,0 +1,26 @@
+[project]
+name = "schelp-watch"
+version = "0.0.1"
+authors = [
+  { name="Gianluca Elia", email="elgiano@gmail.com" },
+]
+description = "Live preview and autoreload for editing SuperCollider HelpFiles."
+readme = "README.md"
+license = "Unlicense"
+requires-python = ">=3.8"
+dependencies = [
+    "watchdog",
+]
+
+[project.scripts]
+schelp-watch = "schelp_watch:main"
+
+[project.urls]
+Homepage = "https://github.com/elgiano/schelp-watch"
+Issues = "https://github.com/elgiano/schelp-watch/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+

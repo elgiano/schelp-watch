@@ -1,19 +1,20 @@
 # schelp-watch
 Live preview and autoreload for editing SuperCollider HelpFiles.
 
+## Installation
+```
+pipx install schelp-watch
+```
+
 ## How it works
 schelp-watch runs a sclang process (with default config), to rebuild Help files whenever their source changes. It won't pollute your current HelpFiles cache, because by default it compiles to a temporary one.
 
 The intended workflow is to freely edit HelpSources, and quickly see how they look in SuperCollider HelpBrowser. It can be used for editing SuperCollider main repo's HelpFiles, and as well for Extensions and Quarks.
 
-## Dependencies
-- Python 3
-- [watchdog](https://github.com/gorakhargosh/watchdog/) `$ pip install watchdog`
-
 ## Usage
-From version 2, schelp-watch can be used with no arguments. Just cwd to your Extension folder, or to your supercollider's main repo clone, and run:
+schelp-watch can be used with no arguments. Just cd to your Extension folder, or to your supercollider's main repo clone, and run:
 ```
-schelp
+schelp-watch
 ```
 It will detect build or extension mode, watch your .schelp files, run SC HelpBrowser and autoreload.
 
@@ -65,6 +66,10 @@ options:
   --quiet, -q           hide sclang output
   --no-preview, -n      write to target, but don't open HelpBrowser
 ```
+
+## Dependencies
+- Python 3
+- [watchdog](https://github.com/gorakhargosh/watchdog/) `$ pip install watchdog`
 
 ## Known issues
 - Still completely untested on mac and windows. Most certainly requires more work for those platforms.

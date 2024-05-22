@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import sys
 from os.path import relpath, abspath, join, dirname, splitext, exists
 from os import getcwd, walk
@@ -27,7 +25,7 @@ class ScLang:
             return
 
         sclangArgs = [self.executable, "-i", "schelp-watch"]
-        if(sclangConfig):
+        if(self.config):
             sclangArgs += ["-al", self.config]
 
         out = subprocess.PIPE if hide_sc_output else None
@@ -163,7 +161,7 @@ It can be used in build mode (for editing help files in SuperCollider's main rep
 
     return parser.parse_args()
 
-if __name__ == "__main__":
+def main():
     logging.addLevelName(logging.WARNING, f"\033[1;33m{logging.getLevelName(logging.WARNING)}\033[1;0m")
     logging.addLevelName(logging.INFO, f"\033[1;34m{logging.getLevelName(logging.INFO)}\033[1;0m")
     logging.addLevelName(logging.ERROR, f"\033[1;31m{logging.getLevelName(logging.ERROR)}\033[1;0m")
@@ -221,3 +219,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         observer.stop()
     observer.join()
+
+if __name__ == "__main__":
+    main()
