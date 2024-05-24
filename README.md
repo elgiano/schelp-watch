@@ -69,7 +69,7 @@ options:
 
 ## Dependencies
 - Python 3
-- [watchdog](https://github.com/gorakhargosh/watchdog/) `$ pip install watchdog`
+- [watchfiles](https://github.com/samuelcolvin/watchfiles)
 
 ## Known issues
 - Still completely untested on mac and windows. Most certainly requires more work for those platforms.
